@@ -112,15 +112,22 @@ class yahoo_query:
     def full_info_query(self):
         with urlreq.urlopen(self.full_info_url) as url:
             data = json.loads(url.read().decode())
-            
+                        
             ########## Creating earnings_history dataframe
-            earnings_history = pd.concat([pd.DataFrame(quarter_earnings).loc['raw'] for 
-                                          quarter_earnings in 
-                                          data['quoteSummary']['result'][0]['earningsHistory']['history']],
+            earnings_annual = pd.concat([pd.DataFrame(earnings).loc['raw'] for 
+                                         earnings in 
+                                         data['quoteSummary']['result'][0]['earnings']['financialsChart']['yearly']], axis = 1).T
+            earnings_annual.index = earnings_annual.date
+            self.earnings_annual = earnings_annual.drop(['date'], axis = 1)
+            
+            
+            earnings_quarterly = pd.concat([pd.DataFrame(quarter_earnings).loc['raw'] for 
+                                            quarter_earnings in 
+                                            data['quoteSummary']['result'][0]['earningsHistory']['history']],
                                          axis = 1).T
-            earnings_history.index = pd.to_datetime([dt.datetime.utcfromtimestamp(int(x)).date() for 
-                                                     x in earnings_history['quarter'].tolist()])
-            self.earnings_history = earnings_history.drop(['period','maxAge','quarter'], axis = 1)
+            earnings_quarterly.index = pd.to_datetime([dt.datetime.utcfromtimestamp(int(x)).date() for 
+                                                       x in earnings_quarterly['quarter'].tolist()])
+            self.earnings_quarterly = earnings_quarterly.drop(['period','maxAge','quarter'], axis = 1)
             
             ########### Creating company profile (risk metrics) dataframe
             profileKeys = list(data['quoteSummary']['result'][0]['assetProfile'].keys())
