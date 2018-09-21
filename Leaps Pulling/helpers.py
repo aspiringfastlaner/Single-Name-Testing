@@ -74,7 +74,7 @@ import smtplib
 import pandas as pd
 import numpy as np
 import datetime as dt
-import pandas.stats.moments as st
+# import pandas.stats.moments as st
 from pandas import ExcelWriter
 import matplotlib.pyplot as plt
 import os
