@@ -63,6 +63,12 @@ functions list:
                  float[interest_rate = 0.0193], float[dividend_rate = 0])
 	
 	yahoo_fundamentals(list_of_str[tickers]) --> DataFrame[fundamentals]
+    
+   spx_spreads(int[dte_ub], int[dte_lb],
+               str[price = 'Market'], float[moneyness], 
+               int[max_strike_distance], 
+               float[max_exposure], 
+               float[commission = 3]) --> DataFrame[spx spreads]
 """
 
 # Note to import from .py files, must follow structure
@@ -1534,3 +1540,73 @@ def yahoo_fundamentals(ticker_lst):
             out_df = out_df.join(data)
             
     return out_df
+
+#%%
+def spx_spreads(dte_ub, dte_lb,price, moneyness, max_strike_distance, max_exposure, commission = 3):
+    spx_chain = all_options('^SPX', dte_ub, dte_lb, moneyness)
+    spx_chain = spx_chain[(spx_chain.Type == 'put') &
+                          (spx_chain.Strike <= spx_chain.Underlying_Price)]
+    spx_chain = all_greeks(spx_chain)
+
+    unique_dtes = spx_chain.DTE.drop_duplicates().tolist()
+
+    
+
+    df_cols = ['Expiry','LongStrike','ShortStrike', 'LongPrice', 'ShortPrice',
+               'Premium', 'MaxLoss', 'Vega', 'Gamma',
+               'Delta','Theta']
+    spread_df = pd.DataFrame(columns = df_cols)
+
+    for dte in unique_dtes:
+        curr_dtes = spx_chain[spx_chain.DTE == dte].sort_values('Strike')
+        for i_long, r_long in curr_dtes.iterrows():
+            curr_df_slice = pd.DataFrame(columns = df_cols)
+            try:
+                curr_shorts = curr_dtes[curr_dtes.Strike > r_long.Strike]
+                curr_shorts = curr_shorts[(curr_shorts.Strike - r_long.Strike) <= max_strike_distance]
+
+                curr_df_slice['ShortStrike'] = curr_shorts['Strike']
+                curr_df_slice['LongStrike'] = r_long.Strike
+                curr_df_slice['Expiry'] = r_long.Expiry
+                curr_df_slice['Vega'] = r_long.Vega - curr_shorts['Vega']
+                curr_df_slice['Gamma'] = r_long.Gamma - curr_shorts['Gamma']
+                curr_df_slice['Delta'] = r_long.Delta - curr_shorts['Delta']
+                curr_df_slice['Theta'] = r_long.Theta - curr_shorts['Theta']
+
+                if price == 'Market':
+                    curr_df_slice['LongPrice'] = r_long.Ask
+                    curr_df_slice['ShortPrice'] = curr_shorts['Bid']
+                    curr_df_slice['Premium'] = 100*(curr_shorts['Bid'] - r_long.Ask)
+                else:
+                    curr_df_slice['LongPrice'] = r_long.Mid
+                    curr_df_slice['ShortPrice'] = curr_shorts['Mid']
+                    curr_df_slice['Premium'] = 100*(curr_shorts['Mid'] - r_long.Mid)
+
+                curr_df_slice['MaxLoss'] = 100*(curr_shorts.Strike - r_long.Strike) - curr_df_slice['Premium']
+
+                spread_df = pd.concat([spread_df, curr_df_slice], axis = 0).reset_index(drop = True)
+            except:
+                continue
+
+    spread_df['RiskReward'] = spread_df['Premium']/spread_df['MaxLoss']
+    spread_df['Contracts'] = np.floor(max_exposure/spread_df['MaxLoss'])
+    spread_df['Premium'] = spread_df['Contracts']*spread_df['Premium'] - commission*spread_df['Contracts']
+    spread_df['MaxLoss'] = spread_df['Contracts']*spread_df['MaxLoss']
+    spread_df['Vega'] = spread_df['Contracts']*spread_df['Vega']
+    spread_df['Gamma'] = spread_df['Contracts']*spread_df['Gamma']
+    spread_df['Delta'] = spread_df['Contracts']*spread_df['Delta']
+    spread_df['Theta'] = spread_df['Contracts']*spread_df['Theta']
+    spread_df['RiskReward'] = spread_df['Premium']/spread_df['MaxLoss']
+
+    spread_df = spread_df.sort_values('RiskReward', ascending = False).reset_index(drop = True)
+    spread_df['Score'] = spread_df.index
+    spread_df = spread_df.sort_values('Theta', ascending = False).reset_index(drop = True)
+    spread_df['Score'] = spread_df['Score'] + spread_df.index
+    spread_df = spread_df.sort_values('Vega', ascending = False).reset_index(drop = True)
+    spread_df['Score'] = spread_df['Score'] + spread_df.index
+    spread_df = spread_df.sort_values('Gamma', ascending = False).reset_index(drop = True)
+    spread_df['Score'] = spread_df['Score'] + spread_df.index
+    spread_df = spread_df.sort_values('Delta', ascending = False).reset_index(drop = True)
+    spread_df['Score'] = spread_df['Score'] + spread_df.index
+    spread_df = spread_df.sort_values('Score').reset_index(drop = True)
+    return spread_df
